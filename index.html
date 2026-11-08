@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASCII Lily Bouquet</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#cfc;font-family:monospace}
+  body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+  canvas{max-width:100vw;max-height:84vh;background:#000}
+  button{background:#111;color:#cfc;border:1px solid #484;padding:6px 14px;border-radius:6px;font:inherit}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="r">Repetir</button>
+<script>
+const cols = 150, rows = 100, cw = 5, ch = 8, K = 0.625;
+const cv = document.getElementById('c');
+cv.width = cols * cw; cv.height = rows * ch;
+const ctx = cv.getContext('2d');
+const off = document.createElement('canvas');
+off.width = cols; off.height = rows;
+const o = off.getContext('2d', { willReadFrequently: true });
+const RAMP = " .:-=+*#%@";
+const clamp = v => Math.max(0, Math.min(1, v));
+const ease = b => b * b * (3 - 2 * b);
+
+function mix(h, t) { // t>0 aclara, t<0 oscurece
+  const n = parseInt(h.slice(1), 16);
+  return [n >> 16, (n >> 8) & 255, n & 255].map(v =>
+    Math.round(t > 0 ? v + (255 - v) * t : v * (1 + t))).join(',');
+}
+
+// x, y, tamaño, color, rotación, inclinación
+const F = [
+  [78, 28, 16, '#d9a79a', .3, .8], [100, 42, 15, '#c06a9a', .2, .7],
+  [50, 44, 15, '#f2d34a', .5, .75], [108, 102, 14, '#9b1030', .5, .7],
+  [32, 102, 15, '#f2d34a', .3, .75], [74, 60, 25, '#e0183f', .1, .9],
+  [46, 80, 25, '#e05ad0', .4, .85], [86, 90, 26, '#efe3d2', .2, .85],
+  [62, 112, 22, '#f0b890', .6, .8]
+].map((a, i) => {
+  const f = { x: a[0], y: a[1], s: a[2], c: a[3], r: a[4], tilt: a[5], i };
+  f.bx = 75 + (i - 4) * 2; f.by = 152;
+  f.off = (i % 2 ? 7 : -7);
+  return f;
+});
+
+const stars = Array.from({ length: 80 }, () => ({
+  x: Math.random() * cols | 0, y: Math.random() * rows | 0, ph: Math.random() * 6.28
+}));
+
+function pt(f, u) {
+  const a = (1 - u) * (1 - u), b = 2 * (1 - u) * u, c = u * u;
+  const cx = (f.bx + f.ex) / 2 + f.off, cy = (f.by + f.ey) / 2 + 12;
+  return [a * f.bx + b * cx + c * f.ex, a * f.by + b * cy + c * f.ey];
+}
+
+function lens(x, y, ang, len, wid, fill) {
+  o.save(); o.translate(x, y); o.rotate(ang);
+  o.beginPath(); o.moveTo(0, 0);
+  o.bezierCurveTo(len * .3, -wid, len * .75, -wid * .8, len, 0);
+  o.bezierCurveTo(len * .75, wid * .8, len * .3, wid, 0, 0);
+  o.fillStyle = fill; o.fill(); o.restore();
+}
+
+function petal(ang, len, wid, c) {
+  o.save(); o.rotate(ang);
+  const g = o.createLinearGradient(0, 0, len, 0);
+  g.addColorStop(0, `rgb(${mix(c, -.45)})`);
+  g.addColorStop(.5, c);
+  g.addColorStop(1, `rgb(${mix(c, .45)})`);
+  o.beginPath(); o.moveTo(0, 0);
+  o.bezierCurveTo(len * .25, -wid * 1.1, len * .7, -wid, len, 0);
+  o.bezierCurveTo(len * .7, wid, len * .25, wid * 1.1, 0, 0);
+  o.fillStyle = g; o.fill();
+  o.strokeStyle = `rgb(${mix(c, .6)})`; o.lineWidth = .6;
+  o.beginPath(); o.moveTo(len * .1, 0); o.lineTo(len * .9, 0); o.stroke();
+  o.fillStyle = `rgb(${mix(c, -.6)})`;
+  for (let k = 0; k < 5; k++) o.fillRect(len * (.15 + .1 * k), ((k * 7) % 5 - 2) * wid * .2, .9, .9);
+  o.restore();
+}
+
+function flower(f, b) {
+  o.save(); o.translate(f.ex, f.ey); o.scale(1, f.tilt); o.rotate(f.r);
+  for (let k = 0; k < 3; k++) petal(k * 2.094, f.s * b, f.s * .3 * b, f.c);
+  for (let k = 0; k < 3; k++) petal(1.047 + k * 2.094, f.s * .92 * b, f.s * .34 * b, f.c);
+  for (let k = 0; k < 6; k++) {
+    const a = k * 1.047 + .3, L = f.s * .5 * b;
+    o.strokeStyle = '#e8d9a0'; o.lineWidth = .5;
+    o.beginPath(); o.moveTo(0, 0); o.lineTo(Math.cos(a) * L, Math.sin(a) * L); o.stroke();
+    o.fillStyle = '#c8641e'; o.fillRect(Math.cos(a) * L - .8, Math.sin(a) * L - .5, 1.8, 1.2);
+  }
+  o.restore();
+}
+
+function draw(t, now) {
+  o.clearRect(0, 0, cols, rows);
+  o.save(); o.scale(1, K);
+  const sp = ease(clamp(t / .35)), lp = ease(clamp((t - .12) / .35));
+  const sway = clamp((t - .8) / .2);
+  F.forEach(f => {
+    f.ex = f.x + Math.sin(now / 900 + f.i) * 1.6 * sway;
+    f.ey = f.y + Math.cos(now / 1100 + f.i) * .8 * sway;
+  });
+  // hojas largas en la base
+  for (let i = 0; i < 18; i++) {
+    const d = (i - 9) * 2.4, ang = -1.5708 + (i - 9) * .09 + Math.sin(now / 1300 + i) * .02 * sway;
+    lens(75 + d, 152, ang, (26 + (i % 4) * 9) * lp, 2.8 * lp, i % 2 ? '#3fa335' : '#63c24a');
+  }
+  // tallos
+  o.strokeStyle = '#7ad84f'; o.lineWidth = 1.2;
+  F.forEach(f => {
+    o.beginPath();
+    for (let k = 0; k <= 24; k++) {
+      const [x, y] = pt(f, sp * k / 24);
+      k ? o.lineTo(x, y) : o.moveTo(x, y);
+    }
+    o.stroke();
+  });
+  // hojas en tallos
+  F.forEach((f, i) => {
+    for (let j = 0; j < 4; j++) {
+      const u = .25 + j * .16;
+      if (u > sp) continue;
+      const [x, y] = pt(f, u), [x2, y2] = pt(f, u + .02);
+      const side = (i + j) % 2 ? 1 : -1;
+      lens(x, y, Math.atan2(y2 - y, x2 - x) + side * .85, 14 * lp, 3 * lp, '#4fb340');
+    }
+  });
+  // botones y flores (orden de atrás hacia adelante)
+  F.forEach(f => {
+    const bd = ease(clamp((t - .3 - f.i * .02) / .2));
+    const b = ease(clamp((t - .5 - f.i * .04) / .3));
+    if (bd > 0 && b < .15) {
+      const [x, y] = pt(f, .97), [x2, y2] = pt(f, 1);
+      const ang = Math.atan2(y2 - y, x2 - x);
+      lens(f.ex, f.ey, ang, f.s * .8 * bd * (1 - b * 3), f.s * .22 * bd, `rgb(${mix(f.c, -.35)})`);
+    }
+    if (b > 0) flower(f, b);
+  });
+  o.restore();
+
+  // ASCII
+  const d = o.getImageData(0, 0, cols, rows).data;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.font = '8px monospace'; ctx.textBaseline = 'top';
+  stars.forEach(s => {
+    ctx.fillStyle = `rgba(255,255,255,${.15 + .6 * Math.abs(Math.sin(now / 700 + s.ph))})`;
+    ctx.fillText('.', s.x * cw, s.y * ch);
+  });
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    const i = (y * cols + x) * 4, a = d[i + 3];
+    if (a < 40) continue;
+    const lum = (a / 255) * (.55 + .45 * (d[i] + d[i + 1] + d[i + 2]) / 765);
+    ctx.fillStyle = `rgb(${d[i]},${d[i + 1]},${d[i + 2]})`;
+    ctx.fillText(RAMP[Math.min(9, Math.floor(lum * 10))], x * cw, y * ch);
+  }
+}
+
+let start = performance.now(), last = 0;
+const DUR = 10000, CYCLE = 17000;
+function loop(now) {
+  if (now - last > 33) {
+    last = now;
+    draw(clamp(((now - start) % CYCLE) / DUR), now);
+  }
+  requestAnimationFrame(loop);
+}
+document.getElementById('r').onclick = () => start = performance.now();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
